@@ -27,7 +27,7 @@ algo.set_options(timeout=3000)  # optional
 
 
 
-def apply():
+def apply(n):
     
     test_sample = pd.read_json(client.file('data://bny_poc/german_credit_input/X_test.json').getFile().name, lines=True, orient='records')
     print(test_sample.shape)
@@ -130,7 +130,9 @@ def apply():
     print(str(output_file_path))
     output_metrics_df.to_csv(output_file_path)
 
-    
+if __name__ == "__main__":
+    input = "'data://bny_poc/german_credit_input/X_train.csv"
+    apply(input)
     
     
   
