@@ -4,11 +4,82 @@
 import pandas as pd
 import pickle
 import numpy as np
+import Algorithmia
+import os
+from pandas.core.frame import DataFrame
+from datetime import datetime
 
 # Bias libraries
 from aequitas.preprocessing import preprocess_input_df
 from aequitas.group import Group
 from aequitas.bias import Bias 
+
+MY_API_KEY = simFGPugHNKuIMaw+23od1cnGjC1 #os.getenv("ALGO_API_KEY_POC", None) #simFGPugHNKuIMaw+23od1cnGjC1
+ALGORITHMIA_API = https://api.bnymellon.productionize.ai # os.getenv('ALGO_API_ADDRESS_POC', None) #https://api.bnymellon.productionize.ai
+output_file_name = ""
+output_file_path = ""
+decisions = []
+
+client = Algorithmia.client(MY_API_KEY, ALGORITHMIA_API)
+algo = client.algo('bny_poc/german_credit/0.1.0')
+algo.set_options(timeout=3000)  # optional
+
+# API calls will begin at the apply() method, with the request body passed as 'input'
+# For more details, see algorithmia.com/developers/algorithm-development/languages
+
+
+
+def apply(input):
+    batch_input = pd.read_csv(
+        client.file('data://bny_poc/German_Credit/X_train.json').getFile().name
+    )
+    print(batch_input.shape)
+    records = batch_input.to_dict("records")
+
+
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H:%M:%S")
+    output_file_name = "bny_poc_german_credit_" + \
+        str(timestamp) + ".csv"
+    print(str(output_file_name))
+
+
+    output_dictory_path = "data://bny_poc/german_credit_output/"
+    output_file_path = output_dictory_path + output_file_name
+    print(str(output_file_path))
+
+
+    batch_input = pd.read_csv(
+        client.file(input).getFile().name
+    )
+
+
+    print(batch_input.shape)
+
+
+    records = batch_input.to_dict("records")
+
+
+    count = 0
+
+
+    for record in records:
+        result = algo.pipe(record).result
+        timestamp = {"timestamp": datetime.now().strftime(
+            "%Y-%m-%d_%H:%M:%S.%f")[:-3]}
+        results = dict(record, **result, **timestamp)
+        print(str(results))
+        decisions.append(results)
+        DataFrame.from_dict(decisions).to_csv(output_file_name)
+        client.file(output_file_path).putFile(output_file_name)
+        count += 1
+        print(str(count))
+
+
+        if count > 30000:
+            break
+
+
+    return f"{count} records processed, result stored at: {output_file_path}"
 
 
 # modelop.init
