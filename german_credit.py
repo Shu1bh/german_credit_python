@@ -1,11 +1,9 @@
-# modelop.schema.0: input_schema.avsc
-# modelop.schema.1: output_schema.avsc
-
 import pandas as pd
 import pickle
 import numpy as np
 import Algorithmia
 import os
+import copy
 from pandas.core.frame import DataFrame
 from datetime import datetime
 
@@ -29,77 +27,22 @@ algo.set_options(timeout=3000)  # optional
 
 
 
-def apply(input):
-    batch_input = pd.read_csv(
-        client.file('data://bny_poc/German_Credit/X_train.json').getFile().name
-    )
-    print(batch_input.shape)
-    records = batch_input.to_dict("records")
-
-
-    timestamp = datetime.now().strftime("%Y-%m-%d_%H:%M:%S")
-    output_file_name = "bny_poc_german_credit_" + \
-        str(timestamp) + ".csv"
-    print(str(output_file_name))
-
-
-    output_dictory_path = "data://bny_poc/german_credit_output/"
-    output_file_path = output_dictory_path + output_file_name
-    print(str(output_file_path))
-
-
-    batch_input = pd.read_csv(
-        client.file(input).getFile().name
-    )
-
-
-    print(batch_input.shape)
-
-
-    records = batch_input.to_dict("records")
-
-
-    count = 0
-
-
-    for record in records:
-        result = algo.pipe(record).result
-        timestamp = {"timestamp": datetime.now().strftime(
-            "%Y-%m-%d_%H:%M:%S.%f")[:-3]}
-        results = dict(record, **result, **timestamp)
-        print(str(results))
-        decisions.append(results)
-        DataFrame.from_dict(decisions).to_csv(output_file_name)
-        client.file(output_file_path).putFile(output_file_name)
-        count += 1
-        print(str(count))
-
-
-        if count > 30000:
-            break
-
-
-    return f"{count} records processed, result stored at: {output_file_path}"
-
-
-# modelop.init
-def begin():
+def apply():
     
-    global logreg_classifier
+    test_sample = pd.read_json(client.file('data://bny_poc/german_credit_input/X_test.json').getFile().name, lines=True, orient='records')
+    print(test_sample.shape)
     
-    # load pickled logistic regression model
-    logreg_classifier = pickle.load(open("logreg_classifier.pickle", "rb"))
+    metrics_sample = pd.read_json(client.file('data://bny_poc/german_credit_input/df_baseline_scored.json').getFile().name, lines=True, orient='records')
+    print(metrics_sample.shape)
+    
+    logreg_classifier = pickle.load(open(client.file('data://bny_poc/german_credit_input/logreg_classifier.pickle').getFile().name, "rb"))
+    
+    #records = batch_input.to_dict("records")
 
-    
-# modelop.score
-def action(data):
-    
-    # Turn data into DataFrame
-    data = pd.DataFrame([data])
-    
+
     # There are only two unique values in data.number_people_liable.
     # Treat it as a categorical feature
-    data.number_people_liable = data.number_people_liable.astype('object')
+    test_sample.number_people_liable = test_sample.number_people_liable.astype('object')
 
     predictive_features = [
         'duration_months', 'credit_amount', 'installment_rate',
@@ -110,21 +53,23 @@ def action(data):
         'telephone', 'foreign_worker'
     ]
     
-    data["predicted_score"] = logreg_classifier.predict(data[predictive_features])
+    test_sample["predicted_score"] = logreg_classifier.predict(test_sample[predictive_features])
     
-    # MOC expects the action function to be a *yield* function
-    yield data.to_dict(orient="records")
-
-
-# modelop.metrics
-def metrics(data):
     
-    data = pd.DataFrame(data)
 
-    # To measure Bias towards gender, filter DataFrame
-    # to "score", "label_value" (ground truth), and
-    # "gender" (protected attribute)
-    data_scored = data[["score", "label_value", "gender"]]
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H:%M:%S")
+    output_file_name = "bny_poc_german_credit_test" + \
+        str(timestamp) + ".csv"
+    print(str(output_file_name))
+
+
+    output_dictory_path = "data://bny_poc/german_credit_output/"
+    output_file_path = output_dictory_path + output_file_name
+    print(str(output_file_path))
+    test_sample.to_csv(output_file_path)
+
+    
+    data_scored = metrics_sample[["score", "label_value", "gender"]]
 
     # Process DataFrame
     data_scored_processed, _ = preprocess_input_df(data_scored)
@@ -174,4 +119,18 @@ def metrics(data):
     output_metrics_df = disparity_metrics_df # or absolute_metrics_df
 
     # Output a JSON object of calculated metrics
-    yield output_metrics_df.to_dict(orient="records")
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H:%M:%S")
+    output_file_name = "bny_poc_german_credit_metrics" + \
+        str(timestamp) + ".csv"
+    print(str(output_file_name))
+
+
+    output_dictory_path = "data://bny_poc/german_credit_output/"
+    output_file_path = output_dictory_path + output_file_name
+    print(str(output_file_path))
+    output_metrics_df.to_csv(output_file_path)
+
+    
+    
+    
+  
