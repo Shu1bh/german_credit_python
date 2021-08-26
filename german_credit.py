@@ -1,48 +1,34 @@
+# modelop.schema.0: input_schema.avsc
+# modelop.schema.1: output_schema.avsc
+
 import pandas as pd
 import pickle
 import numpy as np
-import Algorithmia
-import os
-import copy
-from pandas.core.frame import DataFrame
-from datetime import datetime
 
 # Bias libraries
 from aequitas.preprocessing import preprocess_input_df
 from aequitas.group import Group
 from aequitas.bias import Bias 
 
-MY_API_KEY = simFGPugHNKuIMaw+23od1cnGjC1 #os.getenv("ALGO_API_KEY_POC", None) #simFGPugHNKuIMaw+23od1cnGjC1
-ALGORITHMIA_API = https://api.bnymellon.productionize.ai # os.getenv('ALGO_API_ADDRESS_POC', None) #https://api.bnymellon.productionize.ai
-output_file_name = ""
-output_file_path = ""
-decisions = []
 
-client = Algorithmia.client(MY_API_KEY, ALGORITHMIA_API)
-algo = client.algo('bny_poc/german_credit/0.1.0')
-algo.set_options(timeout=3000)  # optional
-
-# API calls will begin at the apply() method, with the request body passed as 'input'
-# For more details, see algorithmia.com/developers/algorithm-development/languages
-
-
-
-def apply(n):
+# modelop.init
+def begin():
     
-    test_sample = pd.read_json(client.file('data://bny_poc/german_credit_input/X_test.json').getFile().name, lines=True, orient='records')
-    print(test_sample.shape)
+    global logreg_classifier
     
-    metrics_sample = pd.read_json(client.file('data://bny_poc/german_credit_input/df_baseline_scored.json').getFile().name, lines=True, orient='records')
-    print(metrics_sample.shape)
-    
-    logreg_classifier = pickle.load(open(client.file('data://bny_poc/german_credit_input/logreg_classifier.pickle').getFile().name, "rb"))
-    
-    #records = batch_input.to_dict("records")
+    # load pickled logistic regression model
+    logreg_classifier = pickle.load(open("logreg_classifier.pickle", "rb"))
 
-
+    
+# modelop.score
+def action(data):
+    
+    # Turn data into DataFrame
+    data = pd.DataFrame([data])
+    
     # There are only two unique values in data.number_people_liable.
     # Treat it as a categorical feature
-    test_sample.number_people_liable = test_sample.number_people_liable.astype('object')
+    data.number_people_liable = data.number_people_liable.astype('object')
 
     predictive_features = [
         'duration_months', 'credit_amount', 'installment_rate',
@@ -53,23 +39,21 @@ def apply(n):
         'telephone', 'foreign_worker'
     ]
     
-    test_sample["predicted_score"] = logreg_classifier.predict(test_sample[predictive_features])
+    data["predicted_score"] = logreg_classifier.predict(data[predictive_features])
     
+    # MOC expects the action function to be a *yield* function
+    yield data.to_dict(orient="records")
+
+
+# modelop.metrics
+def metrics(data):
     
+    data = pd.DataFrame(data)
 
-    timestamp = datetime.now().strftime("%Y-%m-%d_%H:%M:%S")
-    output_file_name = "bny_poc_german_credit_test" + \
-        str(timestamp) + ".csv"
-    print(str(output_file_name))
-
-
-    output_dictory_path = "data://bny_poc/german_credit_output/"
-    output_file_path = output_dictory_path + output_file_name
-    print(str(output_file_path))
-    test_sample.to_csv(output_file_path)
-
-    
-    data_scored = metrics_sample[["score", "label_value", "gender"]]
+    # To measure Bias towards gender, filter DataFrame
+    # to "score", "label_value" (ground truth), and
+    # "gender" (protected attribute)
+    data_scored = data[["score", "label_value", "gender"]]
 
     # Process DataFrame
     data_scored_processed, _ = preprocess_input_df(data_scored)
@@ -119,20 +103,4 @@ def apply(n):
     output_metrics_df = disparity_metrics_df # or absolute_metrics_df
 
     # Output a JSON object of calculated metrics
-    timestamp = datetime.now().strftime("%Y-%m-%d_%H:%M:%S")
-    output_file_name = "bny_poc_german_credit_metrics" + \
-        str(timestamp) + ".csv"
-    print(str(output_file_name))
-
-
-    output_dictory_path = "data://bny_poc/german_credit_output/"
-    output_file_path = output_dictory_path + output_file_name
-    print(str(output_file_path))
-    output_metrics_df.to_csv(output_file_path)
-
-if __name__ == "__main__":
-    input = "'data://bny_poc/german_credit_input/X_train.csv"
-    apply(input)
-    
-    
-  
+    yield output_metrics_df.to_dict(orient="records")
